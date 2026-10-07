@@ -215,6 +215,118 @@ test("does not treat ordinary shell source globs as private data", () => {
 	}
 });
 
+test("does not treat regex, sed, and extension-only globs as private data", () => {
+	for (const command of [
+		"rg -o 'import static .*\\.([a-zA-Z]+);' -r '$1' Foo.java",
+		"grep -rn 'fetchUser<.*> load\\|parseConfig(' src/api.ts",
+		"grep -n '^\\s*[0-9]+:\\s*;;' src/core.clj",
+		"sed -E 's/^\\[[^]]*\\] ([^:]*):.*/\\1/' notes.txt",
+		"sed 's|.*/||' files.txt",
+		"sed 's/.*<td>//' page.html",
+		"python3 -c \"import re; print(re.findall(r'<<<<<<< HEAD\\n(.*?)=======', s))\"",
+		"rg -n -g '*.{ts,tsx,json}' handleSubmit .",
+		"rg -n SessionStore --glob '!**/.*' app",
+		"ls ~/.config/example-app/*.json",
+		"cat ~/.local/state/example-app/*.json",
+		"grep -n 'class .*\\(private' src/model.ts",
+		"cat > notes.md <<'EOF'\n**2026** plan * [x] Star box\nEOF",
+		"grep -n -iE 'timer|schedule' dotfiles/.pi-agent/extensions/*.ts",
+		"grep -n '^\\[tools\\.pi\\]' mise.toml",
+		"sed -n '/def self.pi_enabled?/,/^  end/p' lib/app.rb",
+		"ls -d ~/.pi/agent/npm/node_modules/*",
+		"rg -n launcher ~/.pi/agent/skills/example/*.md",
+		"grep -n '^// ---------- state\\|^// ---------- credentials' src/index.ts",
+		"python3 - <<'EOF'\nprint(\"\"\"Rotate the secret.\nSee the credentials doc.\"\"\")\nEOF",
+		"diff -rq --exclude=.git --exclude=.bundle a b",
+		"cat .env.example",
+	]) {
+		const action = actionFromToolCall(
+			event("bash", { command }),
+			"/repo/project",
+			{ ...DEFAULT_REVIEW_RULES },
+		);
+		assert.equal(action?.payload.private_data_read, false, command);
+	}
+
+	for (const command of [
+		"cat .*",
+		"cat ~/.ssh/.*",
+		"bash -c 'cat ~/.ssh/id_*'",
+		"grep -r token --include=*.pem .",
+		"cat *.env",
+		"cat *.{json,key}",
+		"rg -n 'x' ~/.aws/credentials",
+		"node -e 'const a=require(\"./auth.json\"); console.log(a)'",
+		"sed 's/.*//' ~/.netrc",
+		"ls ~/.pi/agent/skills/../*",
+		"cat ~/.pi/agent/usage-budget*",
+		"cat ~/.pi/agent/sessions/*/x.jsonl",
+		"bash -c 'cat credentials'",
+		"grep -r --exclude=.git token .env",
+		"cat .env.local",
+		"cat .env.production",
+		"cat ~/.pi/agent/skills/.{.,}/*",
+		"cat ~/.pi/agent/npm/node_modules/.{.,}/.{.,}/*",
+		"cat ~/.pi/agent/skills/.[.]/settings.json",
+		"cat ~/.pi/agent/skills/.?/settings.json",
+		"cat ~/.pi/agent/skills/[.][.]/settings.json",
+		"bash -c 'cd /tmp\nx=1; cat credentials'",
+		"cat ~/.pi/agent/skills/.{.,}/settings.json",
+		"cat ~/.pi/agent/{..,.}/settings.json",
+		"cat ~/.pi/agent/skills/{..,.}/sessions/x.jsonl",
+		"cat ~/.pi/agent/skills/\\.\\./settings.json",
+		"cat ~/.pi/agent/skills/*/../../auth.json",
+		"bash -c \"grep \\s credentials\"",
+		"bash -c \"cat c* \\s\"",
+		"bash -c \'cat credentials\ntrue\'",
+		"bash <<< \'cat credentials\ntrue\'",
+		"printf \'%s\' \'grep \\s credentials\' | sh",
+		"ba\\sh -c \"grep \\s credentials\"",
+		"s\\h -c \"grep \\s credentials\"",
+		"ev\\al \"grep \\s credentials\"",
+		"ba\\sh -c 'cat credentials\ntrue'",
+		"printf '%s' 'grep \\s credentials' | s\\h",
+		"/bin/ba\\sh -c \"grep \\s credentials\"",
+		"env ba\\sh -c \"grep \\s credentials\"",
+		"S=sh; $S -c \"grep \\s credentials\"",
+		"S=/bin/sh; $S -c \"grep \\s credentials\"",
+		"S=sh; ${S} -c \"grep \\s credentials\"",
+		"python3 - <<'EOF'\nimport subprocess\nsubprocess.run(\"\"\"cat credentials\ntrue\"\"\", shell=True)\nEOF",
+		"cat id_rsa\\*",
+		"cat cred\"entials\"\\.json",
+		"cat ~/.ss\\h/id_rsa",
+		"cat ~/{x/../.ssh,y}/id_rsa",
+		// Extension-only globs are not relaxed under directories holding private data.
+		"grep -rn todo ~/.config/ --include=*.json --include=*.yaml",
+		"find ~/.pi -name '*.json' -exec cat {} +",
+		"grep -r token ~/.pi/agent --include=*.json",
+		"grep -rn token ~ --include=*.json",
+		// Relative words after `cd` are classified against the new directory.
+		"cd ~/.pi/agent; cat settings.json",
+		"cd ~/.pi && cat agent/auth.json",
+		"cat ~/{.pi,}/agent/*",
+		"cat ~/.pi/agent/{*,\\[}",
+		"cat ~/.pi/agent/{*,x/.pi/skills/}",
+		"cat ~/\\.pi/agent/*",
+		"eval '--exclude=x; cat ~/.ssh/id_rsa'",
+		"sh -c '--exclude=x && cat ~/.ssh/id_rsa'",
+		"cat ~/.*/*\\s",
+		"bash -c 'cat ~/.*/*\\s'",
+		"bash -c 'cat credentials; printf \"\\n\"'",
+		"bash -c \"grep '\\s' credentials\"",
+		"bash -c 'cat c*'",
+		"cat c*",
+		"type C:\\Users\\test\\.pi\\agent\\*",
+	]) {
+		const action = actionFromToolCall(
+			event("bash", { command }),
+			"/repo/project",
+			{ ...DEFAULT_REVIEW_RULES },
+		);
+		assert.equal(action?.payload.private_data_read, true, command);
+	}
+});
+
 test("does not route installed Pi package docs through private-read review", () => {
 	const packageSkill = actionFromToolCall(
 		event("read", {

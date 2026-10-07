@@ -260,10 +260,18 @@ export function isCredentialLikeBasename(file: string): boolean {
 	);
 }
 
+// Committed templates that document variable names without values.
+const ENV_TEMPLATE_BASENAMES = new Set<string>([
+	".env.example",
+	".env.sample",
+	".env.template",
+	".env.dist",
+]);
+
 export function isPrivateReadBasename(file: string): boolean {
 	return (
 		privateReadBasenames.has(file) ||
-		file.startsWith(".env.") ||
+		(file.startsWith(".env.") && !ENV_TEMPLATE_BASENAMES.has(file)) ||
 		isCredentialLikeBasename(file) ||
 		file.endsWith(".secret") ||
 		file.endsWith(".secrets") ||

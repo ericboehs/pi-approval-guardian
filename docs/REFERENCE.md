@@ -122,7 +122,7 @@ The auditable rule catalogs live in [`src/path-rules.ts`](../src/path-rules.ts).
 
 ### Common private files
 
-- `.env` and `.env.*`
+- `.env` and `.env.*`, except the committed templates `.env.example`, `.env.sample`, `.env.template`, and `.env.dist`
 - `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`
 - authentication, token, credential, secret, and service-account files
 - SSH private keys and authorized-key material
@@ -158,6 +158,26 @@ Installed package contents under these paths are exempt from the `.pi/` location
 ```
 
 User skill, agent, extension, and installed-package source is not private solely because it is under `.pi/`. Canonical targets and individual filenames can still match another private rule.
+
+### Shell glob and regex evidence
+
+Wildcard tokens in `bash` commands are matched against representative private names from the same catalog. Each word is checked the way the shell passes it on: quotes are removed, unquoted `\x` escapes become `x` (outside Windows-style paths), and every brace expansion is checked. So `cat ~/.ss\h/id_rsa`, `cat cred"entials"\.json`, and `cat ~/{x/../.ssh,y}/id_rsa` are private. After `cd dir` or `pushd dir` with a literal `dir`, later relative words are also classified against `dir`, so `cd ~/.pi/agent; cat settings.json` is private. Some arguments only look like globs, so a few cases are handled narrowly:
+
+- **Regex words.** Only words with a quoted part can be regex words, because the shell strips escapes from unquoted words. A quoted word with regex markers (regex escapes such as `\s` or `\.`, a leading `^`, `(?`, `[^`, `.*` next to non-path characters, or a `s/…/…/` sed expression) has its escapes stripped, and its `.*`/`.*?` fragments are not treated as globs. Shell and printf escapes (`\n`, `\t`, `\r`, `\1`) are not regex markers. A word that starts like a path (`/`, `~`, `./`, `../`, a drive letter, or `\\`) is never a regex word, so `cat ~/.*/*\s` stays private.
+- **Prose.** A quoted multi-line string, or a quoted single regex argument, is prose. There, bare words such as "credentials" or "secret" don't count: only tokens with path or glob characters are matched, and one-character glob fragments such as `*a` are ignored. Prose handling is off for the whole command when:
+  - the string itself looks like a script (inner quotes, `;`, `&&`, `$(`, or backticks);
+  - the command invokes a shell anywhere (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, other common shells, `busybox`, `eval`, `source`, `$SHELL`, `su`, `runuser`, `watch`, `script`, `flock`, `parallel`, `tmux`), judged from the word the shell runs, so an unquoted escape still counts (`ba\sh` is `bash`, and so is `/bin/ba\sh`). A simple assignment counts too: `S=sh; $S -c '...'` and `S=/bin/sh; ${S}`. That covers `bash -c "grep \s credentials"`, `ba\sh -c "grep \s credentials"`, `bash -c 'cat credentials<newline>true'`, `bash <<< '...'`, and `printf '...' | sh`;
+  - the command contains code that hands a string to a shell (`subprocess`, `shell=True`, `os.system`, `child_process`, `execSync(`, `system(`, `popen(`, `Open3`, `%x(`, `shell_exec`, …).
+
+  A quoted Python heredoc that only prints multi-line text stays prose. Unquoted heredoc bodies are split into ordinary words and get no prose handling.
+- **Extension-only globs.** `*.json`, `--include=*.yaml`, and `*.{ts,json}` describe a file type, not a credential name. They are private only when the extension itself is a private format, such as `*.pem`, `*.key`, `*.env`, or `*.secret`. The relaxation is off when the command also names a directory whose contents include private data: `/`, the home directory, `~/.config`, `~/.local`, `~/.local/share`, a `.pi` directory, or `.pi/agent`. So `find ~/.pi -name '*.json' -exec cat {} +` and `grep -rn token ~/.config --include=*.json` stay private. Accepted tradeoff: `cat *.json` no longer flags a `credentials.json`, `secrets.json`, or `auth.json` in the current directory. Recursive in-project reads were never flagged either, and the command is still reviewed by the model.
+- **Exclusions.** A `--exclude=`, `--exclude-dir=`, `--ignore=`, or `--ignore-dir=` value, or a `!`-negated selector such as `-g '!**/.*'`, is skipped when it has no whitespace, shell operators, backticks, `$`, or `..`. Anything else is scanned, so a quoted script passed to `eval` or `sh -c` cannot hide behind an exclusion prefix.
+- **`.pi` paths.** Every brace expansion of a word is checked, after removing `\x` escapes outside Windows-style tokens. A path counts only when it has a real `.pi` directory segment, not `.pi-agent/`, `tools.pi`, or `self.pi_x`. Any `$` path under `.pi` is private. A path is exempt only when it sits under a documented public subtree (`skills`, `extensions`, `prompts`, `themes`, `agents`, `git`, `npm/node_modules`) of the first `.pi` segment, with no glob characters before that segment, and the rest has none of:
+  - a `..` segment;
+  - leftover braces;
+  - a glob segment starting with `.` or `[` (such as `.?`, `.[.]`, `[.][.]`), which can match `..` in older bash or with `dotglob`.
+
+  Anything else that is not exempt is private if it contains a glob. If it is literal, it is classified by `classifyReadPath()`, which resolves `..` and existing symlinks. So `skills/.{.,}/settings.json`, `skills/\.\./settings.json`, and `skills/foo/../../sessions/x.jsonl` are private, and `skills/foo/../bar/SKILL.md` is not.
 
 ## Broad search handling
 
