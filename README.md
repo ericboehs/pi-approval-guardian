@@ -1,5 +1,12 @@
 # pi-approval-guardian
 
+> [!IMPORTANT]
+> **Moved to [Boehsline](https://github.com/ericboehs/pi-boehsline)** (`packages/approval-guardian`), with its full history. This repository is archived and gets no more changes. Install Boehsline instead:
+>
+> ```bash
+> pi install git:github.com/ericboehs/pi-boehsline
+> ```
+
 **A fail-closed-by-default approval gate for Pi tool calls.**
 
 It reviews agent shell commands, private-data access, and sensitive file mutations with an isolated reviewer model before execution.
